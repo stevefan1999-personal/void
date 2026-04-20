@@ -35,6 +35,8 @@ junit-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref 
 junit-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
 ktor = { module = "io.ktor:ktor-server-core-jvm", version.ref = "ktor" }
 ktor-network = { module = "io.ktor:ktor-network-jvm", version.ref = "ktor" }
+ktor-websockets = { module = "io.ktor:ktor-server-websockets-jvm", version.ref = "ktor" }
+ktor-netty = { module = "io.ktor:ktor-server-netty-jvm", version.ref = "ktor" }
 displee-cache = { module = "com.displee:rs-cache-library", version.ref = "displeeCache" }
 fastutil = { module = "it.unimi.dsi:fastutil", version.ref = "fastUtil" }
 lzma = { module = "com.github.jponge:lzma-java", version.ref = "lzma" }

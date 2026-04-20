@@ -24,6 +24,7 @@ import world.gregs.voidps.engine.event.Wildcards
 import world.gregs.voidps.engine.map.collision.CollisionDecoder
 import world.gregs.voidps.network.GameServer
 import world.gregs.voidps.network.LoginServer
+import world.gregs.voidps.network.WebSocketGameServer
 import world.gregs.voidps.network.login.protocol.decoders
 import java.util.*
 import kotlin.concurrent.thread
@@ -49,6 +50,18 @@ object Main {
         server = GameServer.load(cache, settings)
         val job = server.start(Settings["network.port"].toInt())
         AuditLog.info("login online")
+
+        // Optional WebSocket front-end — exposes the same byte protocol over
+        // binary WS frames so CheerpJ/browser clients (and Cloudflare
+        // upstreams) can reach the server without a raw-TCP listener.
+        if (Settings["network.websocket.enabled", false]) {
+            WebSocketGameServer(
+                gameServer = server,
+                port = Settings["network.websocket.port", 8080],
+                host = Settings["network.websocket.host", "0.0.0.0"],
+                path = Settings["network.websocket.path", "/"],
+            ).start()
+        }
 
         // Content
         val configFiles = configFiles()

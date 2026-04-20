@@ -1,0 +1,115 @@
+package world.gregs.voidps.network
+
+import com.github.michaelbull.logging.InlineLogger
+import io.ktor.server.application.*
+import io.ktor.server.engine.*
+import io.ktor.server.netty.*
+import io.ktor.server.plugins.*
+import io.ktor.server.routing.*
+import io.ktor.server.websocket.*
+import io.ktor.utils.io.*
+import io.ktor.websocket.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import kotlin.time.Duration.Companion.seconds
+
+/**
+ * Accepts browser-style WebSocket connections (binary frames) and tunnels the
+ * payload into the same [GameServer.connect] pipeline that serves raw TCP
+ * clients. One HTTP listener fronts both the RuneScape JS5 and login protocols;
+ * the opcode byte the client speaks first is identical to the raw-TCP stream,
+ * so Void's existing protocol code needs no changes.
+ *
+ * Deployment note: this speaks plain HTTP/WS. Terminate TLS at the edge
+ * (Cloudflare, ingress controller, etc.) which forwards `wss://` to plain `ws://`.
+ */
+class WebSocketGameServer(
+    private val gameServer: GameServer,
+    private val port: Int,
+    private val host: String = "0.0.0.0",
+    private val path: String = "/",
+) {
+    private var engine: EmbeddedServer<*, *>? = null
+
+    fun start() {
+        engine = embeddedServer(Netty, port = port, host = host) {
+            install(WebSockets) {
+                // The real traffic carries no framing — rely on TCP-like byte streaming.
+                pingPeriod = 20.seconds
+                timeout = 60.seconds
+                maxFrameSize = Long.MAX_VALUE
+            }
+            routing {
+                webSocket(path) {
+                    val remote = call.request.origin.remoteHost
+                    logger.trace { "WebSocket connection accepted from $remote" }
+                    bridge(remote)
+                }
+            }
+        }.start(wait = false)
+        logger.info { "WebSocket game server listening on $host:$port$path" }
+    }
+
+    /**
+     * Pipes the WebSocket `incoming` channel into a [ByteChannel] that acts as
+     * `read`, and a second [ByteChannel] as `write` whose bytes are wrapped in
+     * `Frame.Binary` and sent over `outgoing`. Delegates to the raw-TCP
+     * [GameServer.connect] which is completely unaware of the transport.
+     */
+    private suspend fun DefaultWebSocketServerSession.bridge(remoteHost: String) = coroutineScope {
+        val toServer = ByteChannel(autoFlush = true)
+        val fromServer = ByteChannel(autoFlush = true)
+
+        // WS inbound → byte stream the game server reads from
+        val inbound = launch {
+            try {
+                for (frame in incoming) {
+                    if (frame is Frame.Binary) {
+                        toServer.writeFully(frame.readBytes())
+                        toServer.flush()
+                    }
+                }
+            } catch (_: ClosedReceiveChannelException) {
+            } finally {
+                toServer.close()
+            }
+        }
+
+        // byte stream the game server writes to → WS outbound
+        val outbound = launch {
+            val buf = ByteArray(8192)
+            try {
+                while (!fromServer.isClosedForRead) {
+                    val n = fromServer.readAvailable(buf)
+                    if (n > 0) {
+                        outgoing.send(Frame.Binary(true, buf.copyOfRange(0, n)))
+                    } else if (n < 0) {
+                        break
+                    }
+                }
+            } catch (_: ClosedReceiveChannelException) {
+            } finally {
+                close(CloseReason(CloseReason.Codes.NORMAL, "session ended"))
+            }
+        }
+
+        try {
+            gameServer.connect(toServer, fromServer, remoteHost)
+        } finally {
+            toServer.close()
+            fromServer.close()
+            inbound.cancelAndJoin()
+            outbound.cancelAndJoin()
+            logger.trace { "WebSocket session from $remoteHost closed" }
+        }
+    }
+
+    fun stop() {
+        engine?.stop(1_000, 5_000)
+        engine = null
+    }
+
+    companion object {
+        private val logger = InlineLogger()
+    }
+}
