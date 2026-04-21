@@ -14,4 +14,8 @@
     <logger name="com.zaxxer.hikari.pool" level="WARN"/>
     <logger name="com.zaxxer.hikari.HikariConfig" level="WARN"/>
     <logger name="Exposed" level="WARN"/>
+    <!-- Ktor/Netty chat loudly about client-initiated disconnects;
+         WebSocketGameServer already swallows the matching IOException. -->
+    <logger name="io.ktor.server.application" level="INFO"/>
+    <logger name="io.netty" level="INFO"/>
 </configuration>

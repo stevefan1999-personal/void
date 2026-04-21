@@ -11,6 +11,7 @@ import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
+import kotlinx.io.EOFException
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -95,6 +96,13 @@ class WebSocketGameServer(
 
         try {
             gameServer.connect(toServer, fromServer, remoteHost)
+        } catch (eof: EOFException) {
+            // Client closed mid-handshake; matches how raw-TCP path swallows this.
+            logger.trace { "WebSocket EOF disconnection from $remoteHost" }
+        } catch (cl: ClosedReceiveChannelException) {
+            logger.trace { "WebSocket channel closed from $remoteHost" }
+        } catch (ioe: java.io.IOException) {
+            logger.trace { "WebSocket IO error from $remoteHost: ${ioe.message}" }
         } finally {
             toServer.close()
             fromServer.close()
