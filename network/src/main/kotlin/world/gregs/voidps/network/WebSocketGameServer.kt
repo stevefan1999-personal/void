@@ -8,6 +8,7 @@ import io.ktor.server.plugins.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.utils.io.*
+import io.ktor.utils.io.InternalAPI
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ClosedReceiveChannelException
@@ -57,12 +58,13 @@ class WebSocketGameServer(
      * `Frame.Binary` and sent over `outgoing`. Delegates to the raw-TCP
      * [GameServer.connect] which is completely unaware of the transport.
      */
+    @OptIn(InternalAPI::class)
     private suspend fun DefaultWebSocketServerSession.bridge(remoteHost: String) = coroutineScope {
         val toServer = ByteChannel(autoFlush = true)
         val fromServer = ByteChannel(autoFlush = true)
 
         // WS inbound → byte stream the game server reads from
-        val inbound = launch {
+        val inbound = launch(Dispatchers.IO) {
             try {
                 for (frame in incoming) {
                     if (frame is Frame.Binary) {
@@ -77,16 +79,24 @@ class WebSocketGameServer(
         }
 
         // byte stream the game server writes to → WS outbound
-        val outbound = launch {
+        val outbound = launch(Dispatchers.IO) {
             val buf = ByteArray(8192)
             try {
                 while (!fromServer.isClosedForRead) {
-                    val n = fromServer.readAvailable(buf)
-                    if (n > 0) {
-                        outgoing.send(Frame.Binary(true, buf.copyOfRange(0, n)))
-                    } else if (n < 0) {
-                        break
+                    // Block until at least one byte is available, then drain whatever
+                    // is immediately readable into a single frame. This prevents a JS5
+                    // response from being split across multiple frames when readAvailable
+                    // returns a partial chunk, which would cause the browser client to
+                    // dispatch decompression on a truncated buffer.
+                    val first = fromServer.readByte()
+                    buf[0] = first
+                    var len = 1
+                    val source = fromServer.readBuffer
+                    while (!source.exhausted() && len < buf.size) {
+                        buf[len++] = source.readByte()
                     }
+                    send(Frame.Binary(true, buf.copyOfRange(0, len)))
+                    flush()
                 }
             } catch (_: ClosedReceiveChannelException) {
             } finally {
@@ -95,7 +105,9 @@ class WebSocketGameServer(
         }
 
         try {
-            gameServer.connect(toServer, fromServer, remoteHost)
+            withContext(Dispatchers.IO) {
+                gameServer.connect(toServer, fromServer, remoteHost)
+            }
         } catch (eof: EOFException) {
             // Client closed mid-handshake; matches how raw-TCP path swallows this.
             logger.trace { "WebSocket EOF disconnection from $remoteHost" }
