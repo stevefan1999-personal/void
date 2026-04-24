@@ -36,15 +36,25 @@ object FloorItems : ZoneBatchUpdates.Sender, Runnable {
     private val removeQueue = mutableListOf<FloorItem>()
 
     override fun run() {
-        for (floorItem in removeQueue) {
-            Despawn.floorItem(floorItem)
+        // Snapshot-then-clear: Despawn / Spawn handlers can call
+        // FloorItems.add / FloorItems.remove, which append to addQueue /
+        // removeQueue while we iterate — producing ConcurrentModificationException.
+        // Items added during this tick's dispatch roll into the next tick.
+        if (removeQueue.isNotEmpty()) {
+            val toRemove = removeQueue.toList()
+            removeQueue.clear()
+            for (floorItem in toRemove) {
+                Despawn.floorItem(floorItem)
+            }
         }
-        removeQueue.clear()
-        for (floorItem in addQueue) {
-            add(floorItem)
-            Spawn.floorItem(floorItem)
+        if (addQueue.isNotEmpty()) {
+            val toAdd = addQueue.toList()
+            addQueue.clear()
+            for (floorItem in toAdd) {
+                add(floorItem)
+                Spawn.floorItem(floorItem)
+            }
         }
-        addQueue.clear()
     }
 
     fun add(tile: Tile, id: String, amount: Int = 1, revealTicks: Int = NEVER, disappearTicks: Int = NEVER, charges: Int = 0, owner: Player?) = add(tile, id, amount, revealTicks, disappearTicks, charges, owner?.name)
