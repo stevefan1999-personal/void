@@ -30,6 +30,8 @@ embeddedPostgres = "2.1.0"
 lzma = "1.3"
 shadow = "9.1.0"
 spotless = "7.0.4"
+jib = "3.4.4"
+jlinkJib = "0.7.0"
 
 [libraries]
 kotlin-gradle = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
@@ -91,3 +93,7 @@ database = ["exposed", "exposed-jdbc", "postgresql", "hikari"]
 shadow = { id = "com.gradleup.shadow", version.ref = "shadow" }
 spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 jacoco-aggregation = { id = "jacoco-report-aggregation" }
+jib = { id = "com.google.cloud.tools.jib", version.ref = "jib" }
+# `com.ryandens.jlink-jib` links the jib build to a custom jlink-generated JRE,
+# producing a minimal multi-arch container runtime.
+jlink-jib = { id = "com.ryandens.jlink-jib", version.ref = "jlinkJib" }

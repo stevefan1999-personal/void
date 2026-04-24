@@ -5,6 +5,10 @@ plugins {
     id("shared")
     application
     alias(libs.plugins.shadow)
+    alias(libs.plugins.jib)
+    // Integrates jlink (generates a minimal JRE matching this module's needs)
+    // with jib (daemonless, multi-arch container build).
+    alias(libs.plugins.jlink.jib)
 }
 
 dependencies {
@@ -196,6 +200,86 @@ distributions {
 dependencies {
     allprojects.filter { it.name != "tools" }.forEach {
         jacocoAggregation(it)
+    }
+}
+
+// --- Container image (jib + jlink) -------------------------------------
+//
+// Use `./gradlew :game:jib -PincludeDb` to push a multi-arch OCI image directly
+// to a registry, or `./gradlew :game:jibDockerBuild -PincludeDb` for a local
+// daemon load. The `com.ryandens.jlink-jib-application` plugin runs `jlink` on
+// the JDK first so the image ships a minimal runtime (typically ~40 MB) instead
+// of a full JRE. No Docker daemon is required for the registry push path.
+val jibImage: String = (findProperty("jib.image") as String?) ?: "ghcr.io/greghib/void"
+val jibTag: String = (findProperty("jib.tag") as String?) ?: "latest"
+
+// Modules the jdeps-driven default omits because they are only wired up
+// reflectively at runtime (logback's SAX parser, JDBC SPI, JMX, sun.misc.Unsafe,
+// TLS, compression, …).
+jlinkJre {
+    modules.addAll(
+        "java.base",
+        "java.xml",
+        "java.naming",
+        "java.sql",
+        "java.logging",
+        "java.management",
+        "java.security.jgss",
+        "java.rmi",
+        "java.net.http",
+        "java.instrument",
+        "jdk.crypto.ec",
+        "jdk.unsupported",
+        "jdk.naming.dns",
+        "jdk.zipfs",
+    )
+}
+
+jib {
+    from {
+        // `java-base-debian12` ships glibc + libz etc. but no JDK, so jlink's
+        // custom JRE from the `com.ryandens.jlink-jib` plugin runs against the
+        // runtime libraries it expects without the bloat of a full JRE image.
+        image = "gcr.io/distroless/java-base-debian12:nonroot"
+        platforms {
+            platform {
+                architecture = "amd64"
+                os = "linux"
+            }
+            platform {
+                architecture = "arm64"
+                os = "linux"
+            }
+        }
+    }
+    to {
+        image = jibImage
+        tags = setOf(jibTag, project.version.toString())
+    }
+    container {
+        mainClass = "Main"
+        ports = listOf("43594", "8080")
+        workingDirectory = "/app"
+        // Override the distroless `nonroot` UID – the server writes to
+        // `/app/data/.temp` + `/app/data/saves` at start-up and those paths
+        // come out of the image as root-owned. For production, switch back to
+        // `nonroot` and mount the writable subdirs as volumes owned by 65532.
+        user = "0:0"
+        labels.set(
+            mapOf(
+                "org.opencontainers.image.title" to "Void RSPS",
+                "org.opencontainers.image.source" to "https://github.com/GregHib/void",
+                "org.opencontainers.image.licenses" to "ISC",
+            ),
+        )
+    }
+    extraDirectories {
+        paths {
+            path {
+                setFrom(rootProject.layout.projectDirectory.dir("data"))
+                into = "/app/data"
+            }
+        }
     }
 }
 
