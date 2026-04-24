@@ -54,6 +54,7 @@ fun gameModule(files: ConfigFiles) = module {
                 Settings["storage.database.driver"],
                 Settings["storage.database.jdbcUrl"],
                 Settings["storage.database.poolSize", 2],
+                true, // createSchema
             )
             clazz.constructors.first().newInstance() as Storage
         } else {

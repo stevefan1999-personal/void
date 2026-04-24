@@ -4,7 +4,13 @@ import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
+import org.jetbrains.exposed.sql.statements.BatchUpsertStatement
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.vendors.MysqlDialect
+import org.jetbrains.exposed.sql.vendors.PostgreSQLDialect
+import org.jetbrains.exposed.sql.vendors.currentDialect
+import java.sql.Connection
+import java.sql.DriverManager
 import world.gregs.voidps.engine.data.PlayerSave
 import world.gregs.voidps.engine.data.Storage
 import world.gregs.voidps.engine.data.config.AccountDefinition
@@ -16,6 +22,25 @@ import world.gregs.voidps.engine.entity.item.Item
 import world.gregs.voidps.type.Tile
 import java.util.*
 import java.util.concurrent.TimeUnit
+
+/**
+ * PostgreSQL, Oracle, SQLite and SQL Server accept explicit conflict-key columns
+ * in their upsert syntax (`ON CONFLICT(col)` / `MERGE ... ON (col)`). MySQL and
+ * MariaDB's `INSERT ... ON DUPLICATE KEY UPDATE` does not – Exposed surfaces
+ * this as an `UnsupportedByDialectException`. The underlying tables all have a
+ * matching unique index, so on the MySQL family we can drop the keys and let
+ * the server pick the right row automatically.
+ */
+private fun <T : Table, E : Any> T.portableBatchUpsert(
+    data: Iterable<E>,
+    vararg keys: Column<*>,
+    body: BatchUpsertStatement.(E) -> Unit,
+): List<ResultRow> =
+    if (currentDialect is MysqlDialect) {
+        batchUpsert(data = data, body = body)
+    } else {
+        batchUpsert(data = data, keys = keys, body = body)
+    }
 
 class DatabaseStorage : Storage {
     private val variableNames = setOf("clan_name", "display_name", "clan_join_rank", "clan_talk_rank", "clan_kick_rank", "clan_loot_rank", "coin_share_setting")
@@ -50,10 +75,18 @@ class DatabaseStorage : Storage {
     }
 
     override fun clans(): Map<String, Clan> = transaction {
+        if (currentDialect is PostgreSQLDialect) loadClansWithArrayAgg() else loadClansGroupedInMemory()
+    }
+
+    /**
+     * Original PostgreSQL path: aggregates the variable rows with ARRAY_AGG so
+     * each account produces a single row.
+     */
+    private fun loadClansWithArrayAgg(): Map<String, Clan> {
         val names = CustomFunction<List<String>>("ARRAY_AGG", ArrayColumnType(VarCharColumnType()), VariablesTable.name).alias("variable_names")
         val strings = CustomFunction<List<String>>("ARRAY_AGG", ArrayColumnType(VarCharColumnType()), VariablesTable.string).alias("string_values")
         val booleans = CustomFunction<List<Boolean>>("ARRAY_AGG", ArrayColumnType(VarCharColumnType()), VariablesTable.boolean).alias("bool_values")
-        (AccountsTable innerJoin VariablesTable)
+        return (AccountsTable innerJoin VariablesTable)
             .select(AccountsTable.id, AccountsTable.name, AccountsTable.friends, AccountsTable.ignores, AccountsTable.ranks, names, strings, booleans)
             .where { (AccountsTable.id eq VariablesTable.playerId) and (VariablesTable.name inList variableNames) }
             .groupBy(AccountsTable.id)
@@ -67,6 +100,50 @@ class DatabaseStorage : Storage {
                     name = variables["clan_name"] as? String ?: "",
                     friends = row[AccountsTable.friends].zip(row[AccountsTable.ranks]) { friend, rank -> friend to ClanRank.valueOf(rank) }.toMap(),
                     ignores = row[AccountsTable.ignores],
+                    joinRank = (variables["clan_join_rank"] as? String)?.let { ClanRank.valueOf(it) } ?: ClanRank.Anyone,
+                    talkRank = (variables["clan_talk_rank"] as? String)?.let { ClanRank.valueOf(it) } ?: ClanRank.Anyone,
+                    kickRank = (variables["clan_kick_rank"] as? String)?.let { ClanRank.valueOf(it) } ?: ClanRank.Corporeal,
+                    lootRank = (variables["clan_loot_rank"] as? String)?.let { ClanRank.valueOf(it) } ?: ClanRank.None,
+                    coinShare = variables["coin_share_setting"] as? Boolean ?: false,
+                )
+            }
+    }
+
+    /**
+     * Portable fallback used for MySQL/MariaDB/Oracle/SQL Server/H2 where
+     * ARRAY_AGG is either absent or incompatible. Variables are grouped in
+     * memory per account.
+     */
+    private fun loadClansGroupedInMemory(): Map<String, Clan> {
+        val rows = (AccountsTable innerJoin VariablesTable)
+            .select(
+                AccountsTable.id,
+                AccountsTable.name,
+                AccountsTable.friends,
+                AccountsTable.ignores,
+                AccountsTable.ranks,
+                VariablesTable.name,
+                VariablesTable.string,
+                VariablesTable.boolean,
+            )
+            .where { (AccountsTable.id eq VariablesTable.playerId) and (VariablesTable.name inList variableNames) }
+            .toList()
+        return rows.groupBy { it[AccountsTable.id] }
+            .values
+            .associate { accountRows ->
+                val head = accountRows.first()
+                val accountName = head[AccountsTable.name]
+                val variables: Map<String, Any?> = accountRows.associate { row ->
+                    val variableName = row[VariablesTable.name]
+                    variableName to if (variableName == "coin_share_setting") row[VariablesTable.boolean] else row[VariablesTable.string]
+                }
+                val displayName = variables["display_name"] as? String ?: accountName
+                accountName.lowercase() to Clan(
+                    owner = accountName,
+                    ownerDisplayName = displayName,
+                    name = variables["clan_name"] as? String ?: "",
+                    friends = head[AccountsTable.friends].zip(head[AccountsTable.ranks]) { friend, rank -> friend to ClanRank.valueOf(rank) }.toMap(),
+                    ignores = head[AccountsTable.ignores],
                     joinRank = (variables["clan_join_rank"] as? String)?.let { ClanRank.valueOf(it) } ?: ClanRank.Anyone,
                     talkRank = (variables["clan_talk_rank"] as? String)?.let { ClanRank.valueOf(it) } ?: ClanRank.Anyone,
                     kickRank = (variables["clan_kick_rank"] as? String)?.let { ClanRank.valueOf(it) } ?: ClanRank.Corporeal,
@@ -110,7 +187,7 @@ class DatabaseStorage : Storage {
 
     override fun saveClaims(claims: Map<Int, Claim>): Unit = transaction {
         ClaimsTable.deleteAll()
-        ClaimsTable.batchUpsert(claims.toList(), ClaimsTable.offerId) { (id, claim) ->
+        ClaimsTable.portableBatchUpsert(claims.toList(), ClaimsTable.offerId) { (id, claim) ->
             this[ClaimsTable.offerId] = id
             this[ClaimsTable.amount] = claim.amount
             this[ClaimsTable.coins] = claim.price
@@ -248,7 +325,7 @@ class DatabaseStorage : Storage {
     private fun saveInventories(accounts: List<PlayerSave>, playerIds: Map<String, Int>) {
         InventoriesTable.deleteWhere { playerId inList playerIds.values }
         val invData = accounts.flatMap { save -> save.inventories.toList().map { Triple(save.name, it.first, it.second) } }
-        InventoriesTable.batchUpsert(invData, InventoriesTable.playerId, InventoriesTable.inventoryName) { (id, inventory, items) ->
+        InventoriesTable.portableBatchUpsert(invData, InventoriesTable.playerId, InventoriesTable.inventoryName) { (id, inventory, items) ->
             this[InventoriesTable.playerId] = playerIds.getValue(id.lowercase())
             this[InventoriesTable.inventoryName] = inventory
             this[InventoriesTable.items] = items.map { it.id }
@@ -259,7 +336,7 @@ class DatabaseStorage : Storage {
     private fun saveOffers(accounts: List<PlayerSave>, playerIds: Map<String, Int>) {
         OffersTable.deleteWhere { playerId inList playerIds.values }
         val offerData = accounts.flatMap { save -> save.offers.filter { !it.isEmpty() }.withIndex().map { (index, offer) -> Triple(save.name, index, offer) } }
-        OffersTable.batchUpsert(offerData, OffersTable.playerId, OffersTable.index, OffersTable.id) { (id, index, offer) ->
+        OffersTable.portableBatchUpsert(offerData, OffersTable.playerId, OffersTable.index, OffersTable.id) { (id, index, offer) ->
             this[OffersTable.playerId] = playerIds.getValue(id.lowercase())
             this[OffersTable.id] = offer.id
             this[OffersTable.index] = index
@@ -284,7 +361,7 @@ class DatabaseStorage : Storage {
 
     private fun extracted(byItem: MutableMap<String, TreeMap<Int, MutableList<OpenOffer>>>, playerIds: Map<String, Int>, sell: Boolean) {
         val offerData = byItem.flatMap { (item, value) -> value.flatMap { (price, list) -> list.map { offer -> Triple(item, price, offer) } } }
-        ActiveOffersTable.batchUpsert(offerData, ActiveOffersTable.playerId, ActiveOffersTable.id) { (item, price, offer) ->
+        ActiveOffersTable.portableBatchUpsert(offerData, ActiveOffersTable.playerId, ActiveOffersTable.id) { (item, price, offer) ->
             this[ActiveOffersTable.playerId] = playerIds.getValue(offer.account.lowercase())
             this[ActiveOffersTable.id] = offer.id
             this[ActiveOffersTable.item] = item
@@ -299,7 +376,7 @@ class DatabaseStorage : Storage {
     private fun saveHistories(accounts: List<PlayerSave>, playerIds: Map<String, Int>) {
         PlayerHistoryTable.deleteWhere { playerId inList playerIds.values }
         val historyData = accounts.flatMap { save -> save.history.withIndex().map { Triple(save.name, it.index, it.value) } }
-        PlayerHistoryTable.batchUpsert(historyData, PlayerHistoryTable.playerId, PlayerHistoryTable.index) { (id, index, history) ->
+        PlayerHistoryTable.portableBatchUpsert(historyData, PlayerHistoryTable.playerId, PlayerHistoryTable.index) { (id, index, history) ->
             this[PlayerHistoryTable.playerId] = playerIds.getValue(id.lowercase())
             this[PlayerHistoryTable.index] = index
             this[PlayerHistoryTable.item] = history.item
@@ -312,7 +389,7 @@ class DatabaseStorage : Storage {
     private fun saveVariables(accounts: List<PlayerSave>, playerIds: Map<String, Int>) {
         VariablesTable.deleteWhere { playerId inList playerIds.values }
         val varData = accounts.flatMap { save -> save.variables.toList().map { Triple(save.name, it.first, it.second) } }
-        VariablesTable.batchUpsert(varData, VariablesTable.playerId, VariablesTable.name) { (id, name, value) ->
+        VariablesTable.portableBatchUpsert(varData, VariablesTable.playerId, VariablesTable.name) { (id, name, value) ->
             this[VariablesTable.playerId] = playerIds.getValue(id.lowercase())
             this[VariablesTable.name] = name
             when (value) {
@@ -356,7 +433,7 @@ class DatabaseStorage : Storage {
     }
 
     private fun saveLevels(accounts: List<PlayerSave>, playerIds: Map<String, Int>) {
-        LevelsTable.batchUpsert(accounts, LevelsTable.playerId) { playerSave ->
+        LevelsTable.portableBatchUpsert(accounts, LevelsTable.playerId) { playerSave ->
             this[LevelsTable.playerId] = playerIds.getValue(playerSave.name.lowercase())
             val levels = playerSave.levels
             this[LevelsTable.attack] = levels[0]
@@ -388,7 +465,7 @@ class DatabaseStorage : Storage {
     }
 
     private fun saveExperience(accounts: List<PlayerSave>, playerIds: Map<String, Int>) {
-        ExperienceTable.batchUpsert(accounts, ExperienceTable.playerId) { playerSave ->
+        ExperienceTable.portableBatchUpsert(accounts, ExperienceTable.playerId) { playerSave ->
             this[ExperienceTable.playerId] = playerIds.getValue(playerSave.name.lowercase())
             val experience = playerSave.experience
             this[ExperienceTable.attack] = experience[0]
@@ -420,7 +497,7 @@ class DatabaseStorage : Storage {
     }
 
     private fun saveAccounts(accounts: List<PlayerSave>) {
-        AccountsTable.batchUpsert(accounts, AccountsTable.name) { playerSave ->
+        AccountsTable.portableBatchUpsert(accounts, AccountsTable.name) { playerSave ->
             this[AccountsTable.name] = playerSave.name
             this[AccountsTable.passwordHash] = playerSave.password
             this[AccountsTable.tile] = playerSave.tile.id
@@ -549,7 +626,7 @@ class DatabaseStorage : Storage {
 
     companion object {
 
-        fun connect(username: String, password: String, driver: String, url: String, poolSize: Int) {
+        fun connect(username: String, password: String, driver: String, url: String, poolSize: Int, createSchema: Boolean = true) {
             val config = HikariConfig().apply {
                 jdbcUrl = url
                 driverClassName = driver
@@ -557,11 +634,43 @@ class DatabaseStorage : Storage {
                 this.password = password
                 maximumPoolSize = poolSize
                 isReadOnly = false
-                transactionIsolation = "TRANSACTION_SERIALIZABLE"
+                transactionIsolation = resolveTransactionIsolation(driver, url, username, password)
             }
             Database.connect(HikariDataSource(config))
+            if (!createSchema) return
             transaction {
-                SchemaUtils.create(*tables, inBatch = true)
+                // inBatch = false avoids a MySQL driver error ("SQL String cannot be empty")
+                // caused by empty DDL entries that Exposed emits for identity-column
+                // bookkeeping on non-PostgreSQL dialects.
+                SchemaUtils.create(*tables, inBatch = currentDialect is PostgreSQLDialect)
+            }
+        }
+
+        /**
+         * Probes the target server via `DatabaseMetaData` and picks the
+         * strongest isolation it can honour:
+         *   - `SERIALIZABLE` when the driver reports it as supported.
+         *   - `READ_COMMITTED` as a fallback, or when the server is Oracle –
+         *     Oracle advertises SERIALIZABLE support but rejects `MERGE`
+         *     statements run under it (ORA-08176), and `batchUpsert` compiles
+         *     to MERGE on that dialect.
+         */
+        private fun resolveTransactionIsolation(driver: String, url: String, username: String, password: String): String {
+            val fallback = "TRANSACTION_READ_COMMITTED"
+            return try {
+                Class.forName(driver)
+                DriverManager.getConnection(url, username, password).use { conn ->
+                    val md = conn.metaData
+                    val product = md.databaseProductName.orEmpty()
+                    val supportsSerializable = md.supportsTransactionIsolationLevel(Connection.TRANSACTION_SERIALIZABLE)
+                    when {
+                        product.equals("Oracle", ignoreCase = true) -> fallback
+                        supportsSerializable -> "TRANSACTION_SERIALIZABLE"
+                        else -> fallback
+                    }
+                }
+            } catch (_: Throwable) {
+                fallback
             }
         }
 

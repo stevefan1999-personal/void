@@ -59,11 +59,33 @@ tasks {
         dependsOn("scriptMetadata")
         from(layout.buildDirectory.file("scripts.txt"))
         val db = findProperty("includeDb") != null
+        val includeOracle = findProperty("includeOracle") != null
+        if (db) {
+            // Each JDBC driver ships its own `META-INF/services/java.sql.Driver`.
+            // HikariCP explicitly loads `driverClassName` via Class.forName, so
+            // a missing ServiceLoader entry is not fatal – but merging lets
+            // `DriverManager.getConnection(url)` auto-detect all supported
+            // backends.
+            mergeServiceFiles()
+            // sqlite-jdbc ships ~14 MB of cross-platform native `.so/.dylib/.dll`
+            // binaries. We keep the pure-Java driver but expect operators to
+            // install a matching native via `-Dorg.sqlite.lib.path` or a system
+            // package. Strip the bundled binaries to keep the fat jar slim.
+            exclude("org/sqlite/native/**")
+        }
         minimize {
             if (db) {
                 exclude(project(":database"))
                 exclude(dependency("org.postgresql:postgresql:.*"))
                 exclude(dependency("org.jetbrains.exposed:exposed-jdbc:.*"))
+                // JDBC drivers are discovered via ServiceLoader at runtime, so
+                // the shadow minimizer can't see they're used. Keep them.
+                exclude(dependency("com.mysql:mysql-connector-j:.*"))
+                exclude(dependency("org.mariadb.jdbc:mariadb-java-client:.*"))
+                exclude(dependency("org.xerial:sqlite-jdbc:.*"))
+                if (includeOracle) {
+                    exclude(dependency("com.oracle.database.jdbc:ojdbc11:.*"))
+                }
             }
             exclude("world/gregs/voidps/engine/log/**")
             exclude(dependency("ch.qos.logback:logback-classic:.*"))

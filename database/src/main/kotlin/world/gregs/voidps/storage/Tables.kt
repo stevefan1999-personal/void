@@ -3,17 +3,19 @@ package world.gregs.voidps.storage
 import org.jetbrains.exposed.sql.Table
 
 internal object AccountsTable : Table("accounts") {
-    val id = integer("id").autoIncrement().uniqueIndex()
+    // Do not add `.uniqueIndex()` – the column is already the primary key, and
+    // Oracle rejects the duplicate UNIQUE constraint with ORA-02261.
+    val id = integer("id").autoIncrement()
     val name = varchar("name", 12).uniqueIndex()
-    val passwordHash = text("password_hash")
+    val passwordHash = varchar("password_hash", 255)
     val tile = integer("tile")
-    val blockedSkills = array<Int>("blocked")
+    val blockedSkills = intList("blocked")
     val male = bool("male")
-    val looks = array<Int>("looks")
-    val colours = array<Int>("colours")
-    val friends = array<String>("friends")
-    val ranks = array<String>("ranks")
-    val ignores = array<String>("ignores")
+    val looks = intList("looks")
+    val colours = intList("colours")
+    val friends = stringList("friends")
+    val ranks = stringList("ranks")
+    val ignores = stringList("ignores")
 
     override val primaryKey = PrimaryKey(id, name = "pk_account_id")
 }
@@ -78,15 +80,15 @@ internal object LevelsTable : Table("levels") {
 
 internal object VariablesTable : Table("variables") {
     val playerId = integer("player_id").references(AccountsTable.id)
-    val name = text("name")
+    val name = varchar("name", 128)
     val type = byte("type")
     val string = text("string_value").nullable().default(null)
     val int = integer("int_value").nullable().default(null)
     val boolean = bool("boolean_value").nullable().default(null)
     val double = double("double_value").nullable().default(null)
     val long = long("long_value").nullable().default(null)
-    val stringList = array<String>("string_list_value").nullable().default(null)
-    val intList = array<Int>("int_list_value").nullable().default(null)
+    val stringList = stringList("string_list_value").nullable().default(null)
+    val intList = intList("int_list_value").nullable().default(null)
 
     init {
         index(true, playerId, name)
@@ -95,9 +97,9 @@ internal object VariablesTable : Table("variables") {
 
 internal object InventoriesTable : Table("inventories") {
     val playerId = integer("player_id").references(AccountsTable.id)
-    val inventoryName = text("inventory_name")
-    val items = array<String>("items")
-    val amounts = array<Int>("amounts")
+    val inventoryName = varchar("inventory_name", 64)
+    val items = stringList("items")
+    val amounts = intList("amounts")
 
     init {
         index(true, playerId, inventoryName)
@@ -107,11 +109,13 @@ internal object InventoriesTable : Table("inventories") {
 internal object OffersTable : Table("grand_exchange_offers") {
     val playerId = integer("player_id").references(AccountsTable.id)
     val id = integer("id")
-    val index = integer("index")
-    val item = text("item")
+    // SQL column is `slot`, not `index`, because `INDEX` is a reserved word in
+    // Oracle and Exposed 0.48 does not auto-quote it.
+    val index = integer("slot")
+    val item = varchar("item", 128)
     val amount = integer("amount")
     val price = integer("price")
-    val state = text("state")
+    val state = varchar("state", 32)
     val completed = integer("completed").default(0)
     val lastActive = long("last_active").default(0)
     val coins = integer("coins").default(0)
@@ -126,7 +130,7 @@ internal object OffersTable : Table("grand_exchange_offers") {
 internal object ActiveOffersTable : Table("grand_exchange_active_offers") {
     val playerId = integer("player_id").references(AccountsTable.id)
     val id = integer("id")
-    val item = text("item")
+    val item = varchar("item", 128)
     val remaining = integer("remaining")
     val price = integer("price")
     val coins = integer("coins").default(0)
@@ -142,8 +146,9 @@ internal object ActiveOffersTable : Table("grand_exchange_active_offers") {
 
 internal object PlayerHistoryTable : Table("player_exchange_history") {
     val playerId = integer("player_id").references(AccountsTable.id)
-    val index = integer("index")
-    val item = text("item")
+    // See `OffersTable.index` – `INDEX` is reserved on Oracle.
+    val index = integer("slot")
+    val item = varchar("item", 128)
     val amount = integer("amount")
     val coins = integer("coins")
     init {
@@ -158,9 +163,9 @@ internal object ClaimsTable : Table("grand_exchange_claims") {
 }
 
 internal object ItemHistoryTable : Table("grand_exchange_item_history") {
-    val item = text("item")
+    val item = varchar("item", 128)
     val timestamp = long("timestamp")
-    val timeframe = text("timeframe")
+    val timeframe = varchar("timeframe", 16)
     val open = integer("open")
     val high = integer("high")
     val low = integer("low")
