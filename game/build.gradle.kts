@@ -87,6 +87,8 @@ tasks {
             }
             exclude("world/gregs/voidps/engine/log/**")
             exclude(dependency("ch.qos.logback:logback-classic:.*"))
+            // Only reachable through META-INF/services, so minimize would strip the JSON provider the web api installs
+            exclude(dependency("io.ktor:ktor-serialization-kotlinx-json-jvm:.*"))
         }
         if (db) {
             archiveBaseName.set("void-server-db-$version")
