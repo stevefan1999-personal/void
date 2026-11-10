@@ -118,7 +118,7 @@ object Docs {
         }
         val hash = href.indexOf('#')
         val path = (if (hash >= 0) href.substring(0, hash) else href).removePrefix("./")
-        val id = path.lowercase()
+        val id = path.lowercase().removeSuffix(".md")
         if (id !in ids) {
             return@replace match.value
         }

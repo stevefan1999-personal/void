@@ -75,6 +75,21 @@ class SiteConfigurationTest {
     }
 
     @Test
+    fun `Source Markdown links resolve to generated documentation pages`() {
+        val configuration = configuration()
+        Site.configure(configuration)
+        val docs = File(directory, "docs").apply { mkdirs() }
+        File(docs, "First.md").writeText("# First\n\n[Browser setup](Second.md#setup)\n")
+        File(docs, "Second.md").writeText("# Setup\n")
+
+        Docs.generate(docs, configuration.output)
+
+        val page = File(configuration.output, "docs/first.html").readText()
+        assertTrue(page.contains("href=\"second.html#setup\""))
+        assertFalse(page.contains("href=\"Second.md#setup\""))
+    }
+
+    @Test
     fun `JVM property selects an explicit properties file`() {
         val configuration = configuration()
         val previous = System.getProperty("void.site.properties")
