@@ -32,7 +32,6 @@ import world.gregs.voidps.network.login.protocol.decoders
 import world.gregs.voidps.network.login.registration.RegistrationLimiter
 import world.gregs.voidps.web.WebServer
 import world.gregs.voidps.web.account.AccountService
-import java.nio.file.Paths
 import java.util.*
 import kotlin.concurrent.thread
 import kotlin.io.path.exists
@@ -177,7 +176,7 @@ object Main {
 
     @Suppress("HttpUrlsUsage")
     private fun webServer(port: Int, cache: Cache): Job? {
-        val path = Paths.get(Settings["web.client.path", ""])
+        val path = WebServer.clientPath()
         val webclient = if (path.exists()) {
             path
         } else {

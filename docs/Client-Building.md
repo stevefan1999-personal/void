@@ -9,20 +9,29 @@
 
 `void-client.jar` will be located in `/out/artifacts/void_client_jar/`
 
-# Use the TeaVM browser client (optional)
+# Select the browser client
 
-The client stays in the separate [634-deob repository](https://github.com/stevefan1999-personal/634-deob), which currently requires private repository access.
+The server operator selects one client for all players in `game.properties`:
+
+- `web.client.type=official` uses `web.client.path` and remains the default, including for existing configuration files.
+- `web.client.type=teavm` uses `web.client.teavm.path`. The attachment must exist and be a readable, non-empty file.
+
+Restart the server after changing the selection. Both clients use the same `/play` page and `/proxy` connection.
+There is no player-facing selector or automatic fallback. Keep the official file to switch back without rebuilding.
+
+The TeaVM port stays in the separate [634-deob repository](https://github.com/stevefan1999-personal/634-deob), which currently requires private repository access.
 Use revision [`d949b478`](https://github.com/stevefan1999-personal/634-deob/tree/d949b478a95f63d6717614af84f79f40beb7c020) as the source pin.
 Build the client separately and supply its `client-web/build/upstream/void-client.js` output.
 This classic script contains the TeaVM 0.16.0 WasmGC client and runtime. It needs a browser with WasmGC support.
 Void does not fetch or build the client, and its default client stays unchanged.
 
 For development, copy `game/src/main/resources/game.properties` to the repository root if no local copy exists.
-Change these values in that local `game.properties`:
+To select TeaVM, change these values in that local `game.properties`:
 
 ```properties
 web.server.enabled=true
-web.client.path=/absolute/path/to/634-deob/client-web/build/upstream/void-client.js
+web.client.type=teavm
+web.client.teavm.path=/absolute/path/to/634-deob/client-web/build/upstream/void-client.js
 ```
 
 With the game cache installed, generate the existing website with `./gradlew :web:site:run`, then start the server with `./gradlew :game:run`.
@@ -31,17 +40,18 @@ The existing page loads `/play/void-client.js` and connects to `/proxy`. No addi
 For another host, update the world's `web` address in `web/site/src/main/resources/static/worlds.json` before generating the website.
 Use HTTPS for remote browser access, with WebSocket forwarding to `/proxy`.
 
-To include the same script in the existing server bundle:
+To attach the TeaVM script alongside the official client in the existing server bundle:
 
 ```bash
-./gradlew :game:bundleDistZip -PwebClient=/absolute/path/to/634-deob/client-web/build/upstream/void-client.js
+./gradlew :game:bundleDistZip -PteavmClient=/absolute/path/to/634-deob/client-web/build/upstream/void-client.js
 ```
 
-The bundle contains the supplied script as `data/void-client.js` instead of the default client and its source map.
-After extraction, enable `web.server.enabled` and keep `web.client.path=./data/void-client.js`.
+The bundle retains `data/void-client.js` and adds the attachment as `data/teavm-client.js`.
+After extraction, enable `web.server.enabled` and set `web.client.type=teavm` to use the attachment.
+The default paths already match both bundled files. Set `web.client.type=official` to use the official client again.
 Copy the generated `build/pages/` into the bundle's `build/pages/`, or set `web.server.pages` to your generated website directory.
 Install the game cache and start the server as normal. The bundle does not contain the cache or website.
-Without `-PwebClient`, packaging uses the existing client. Neither mode changes files in the source checkout.
+Without `-PteavmClient`, packaging needs no TeaVM checkout or artifact. Neither mode changes files in the source checkout.
 
 # Modify an existing 634 deob
 

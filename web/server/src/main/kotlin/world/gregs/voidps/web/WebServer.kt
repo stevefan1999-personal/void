@@ -31,6 +31,9 @@ import world.gregs.voidps.web.route.webclient
 import java.io.File
 import java.nio.file.Path
 import java.nio.file.Paths
+import kotlin.io.path.fileSize
+import kotlin.io.path.isReadable
+import kotlin.io.path.isRegularFile
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -91,6 +94,16 @@ class WebServer(
         /** Largest websocket frame accepted from a client; game client packets are far smaller. */
         private const val MAX_FRAME_SIZE = 1024L * 1024L
 
+        fun clientPath(settings: Settings = Settings): Path = when (settings["web.client.type", "official"]) {
+            "official" -> Paths.get(settings["web.client.path", "./data/void-client.js"])
+            "teavm" -> Paths.get(settings["web.client.teavm.path", "./data/teavm-client.js"]).also {
+                require(it.isRegularFile() && it.isReadable() && it.fileSize() > 0) {
+                    "Selected TeaVM client must be a readable, non-empty file: $it"
+                }
+            }
+            else -> throw IllegalArgumentException("web.client.type must be official or teavm.")
+        }
+
         @JvmStatic
         fun main(args: Array<String>) {
             Settings.load("./game/src/main/resources/game.properties")
@@ -102,7 +115,7 @@ class WebServer(
 
             val questDefinitions = QuestDefinitions().load(files.find(Settings["definitions.quests"]))
             ItemDefinitions.init(ItemDecoder().load(cache)).load(files.list(Settings["definitions.items"]))
-            val path = Paths.get(Settings["web.client.path"])
+            val path = clientPath()
             val storage = FileStorage(File(Settings["storage.players.path"]))
             WebServer(path, 8080, "localhost", 43594, storage, questDefinitions, cache).start()
         }

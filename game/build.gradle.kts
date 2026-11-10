@@ -147,14 +147,14 @@ distributions {
         contents {
             from(tasks["shadowJar"])
 
-            val webClient = providers.gradleProperty("webClient").map { rootProject.file(it) }.orNull
-            if (webClient != null) {
-                require(webClient.isFile && webClient.canRead() && webClient.length() > 0) {
-                    "-PwebClient must point to a readable, non-empty classic client JavaScript file."
+            val teavmClient = providers.gradleProperty("teavmClient").map { rootProject.file(it) }.orNull
+            if (teavmClient != null) {
+                require(teavmClient.isFile && teavmClient.canRead() && teavmClient.length() > 0) {
+                    "-PteavmClient must point to a readable, non-empty classic client JavaScript file."
                 }
-                from(webClient) {
+                from(teavmClient) {
                     into("data")
-                    rename { "void-client.js" }
+                    rename { "teavm-client.js" }
                 }
             }
 
@@ -167,7 +167,7 @@ distributions {
                 if (emptyDirs.contains(config) || config == ".temp") {
                     continue
                 }
-                if (webClient != null && config in setOf("void-client.js", "void-client.js.map")) {
+                if (teavmClient != null && config in setOf("teavm-client.js", "teavm-client.js.map")) {
                     continue
                 }
                 if (config.contains(".")) {
