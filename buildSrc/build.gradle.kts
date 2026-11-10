@@ -30,7 +30,7 @@ tasks.test {
 
 spotless {
     kotlin {
-        target("src/main/kotlin/TeaVmClient*.kt", "src/test/kotlin/TeaVmClient*.kt")
+        target("src/main/kotlin/TeaVmClient*.kt", "src/test/kotlin/TeaVmClient*.kt", "src/main/kotlin/BrowserInstance*.kt", "src/test/kotlin/BrowserInstance*.kt")
         ktlint().editorConfigOverride(mapOf("ktlint_code_style" to "intellij_idea"))
     }
 }
