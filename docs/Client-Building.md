@@ -20,9 +20,10 @@ Restart the server after changing the selection. Both clients use the same `/pla
 There is no player-facing selector or automatic fallback. Keep the official file to switch back without rebuilding.
 
 The TeaVM port stays in the separate [634-deob repository](https://github.com/stevefan1999-personal/634-deob), which currently requires private repository access.
-Use revision [`d949b478`](https://github.com/stevefan1999-personal/634-deob/tree/d949b478a95f63d6717614af84f79f40beb7c020) as the source pin.
-Build the client separately and supply its `client-web/build/upstream/void-client.js` output.
+Use revision [`b192eaf4`](https://github.com/stevefan1999-personal/634-deob/tree/b192eaf437960c6b4488e806b996303c149aa012) as the source pin.
+In that checkout, run `./gradlew :client-web:packageUpstreamClient` and supply its `client-web/build/upstream/void-client.js` output. Deno is not required.
 This classic script contains the TeaVM 0.16.0 WasmGC client and runtime. It needs a browser with WasmGC support.
+It follows the existing page layout and shows a crash log with a user-controlled **Reload page** button after a fatal error.
 Void does not fetch or build the client, and its default client stays unchanged.
 
 For development, copy `game/src/main/resources/game.properties` to the repository root if no local copy exists.
