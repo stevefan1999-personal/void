@@ -1,0 +1,3 @@
+[submodule "teavm-client"]
+	path = external/teavm-client
+	url = https://dev.git.stevefan1999.me/stevefan1999/634-deob.git

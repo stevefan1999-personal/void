@@ -18,3 +18,25 @@
 
 > [Code changes can be found here](https://gist.github.com/GregHib/900e90082314f949b04ff5c0d3e4d8ab) however naming will likely differ in your deob client.
 
+## TeaVM browser client source
+
+The browser integration pins a separate client repository at
+`external/teavm-client`. It does not import that source under Void's license or
+apply Void's Gradle conventions to it.
+
+Initialize the pinned checkout before building the browser client:
+
+```sh
+git submodule update --init external/teavm-client
+git -C external/teavm-client lfs install --local
+git -C external/teavm-client lfs pull --include="gradle/wrapper/gradle-wrapper.jar,originals/31071.jar"
+```
+
+The client host currently requires authentication. Use approved Git credentials
+for that host. Never put a token in `.gitmodules`, commands, or committed files.
+There is no fallback to another repository or an old compiled client.
+
+The pinned browser build uses official TeaVM `0.16.0` and the client's own
+Gradle wrapper. Native C/SDL and Java desktop builds are not browser
+prerequisites. Review the client source and dependency redistribution terms
+before publishing a client-containing distribution.
