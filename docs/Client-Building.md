@@ -40,3 +40,7 @@ The pinned browser build uses official TeaVM `0.16.0` and the client's own
 Gradle wrapper. Native C/SDL and Java desktop builds are not browser
 prerequisites. Review the client source and dependency redistribution terms
 before publishing a client-containing distribution.
+
+Use the [Browser Client guide](Browser-Client.md) to build the complete Void
+application, configure its visible world list, run a durable instance, and test
+the actual packaged browser workflow.

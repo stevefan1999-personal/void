@@ -51,6 +51,12 @@
 
 ## Webclient setup (experimental)
 
+For the complete pinned TeaVM client, generated website, and runnable browser
+package, use the [browser distribution guide](docs/Browser-Client.md).
+The client is a separate Git submodule. Ordinary server builds remain unchanged.
+
+To use an existing compatible client script instead:
+
 1. Set `web.server.enabled` to `true` in `game.properties`.
 2. Run the server as normal [^](#quick-setup).
 3. Open `http://localhost:8080/play` in the browser and login with any username or password to create a new account.

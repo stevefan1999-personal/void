@@ -1,0 +1,3 @@
+TeaVM 0.16.0 source notices.
+Source: https://github.com/konsoletyper/teavm/tree/e87d452e4bd70c77b9e19314a46c3d6971c148b6
+These notices do not grant rights to the separate reconstructed client source.

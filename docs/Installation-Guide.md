@@ -3,6 +3,10 @@ Requirements:
 - 410MB storage space
 - File extraction tool like WinRar, 7Zip or Windows 7/8/10/11 has one built in
 
+For browser play without a desktop client JAR, see the
+[TeaVM browser distribution](Browser-Client.md). It builds the pinned client and
+website with Void. Keep runtime saves outside generated build output.
+
 # Step 1: Download the latest server .zip
 
 [Server Release Page Link](https://github.com/GregHib/void/releases)

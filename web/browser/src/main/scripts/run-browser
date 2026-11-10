@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+set -eu
+app_home=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$app_home"
+java_binary=java
+if [ -n "${JAVA_HOME:-}" ]; then
+  java_binary="$JAVA_HOME/bin/java"
+fi
+exec "$java_binary" "-Xmx${VOID_JAVA_HEAP_MIB:-2048}m" -jar "@serverJar@" "$@"
