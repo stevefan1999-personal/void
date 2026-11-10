@@ -7,6 +7,7 @@ import world.gregs.voidps.engine.data.Settings
 import world.gregs.voidps.engine.data.configFiles
 import world.gregs.voidps.engine.data.definition.Areas
 import world.gregs.voidps.engine.data.definition.NPCDefinitions
+import world.gregs.voidps.web.site.components.WorldEntry
 import java.io.File
 import java.net.URI
 import java.net.http.HttpClient
@@ -37,7 +38,16 @@ object Site {
     /** The tile set [REMOTE_MAP_TILES] serves from; a trailing slash is optional (see [tileBase]). */
     const val MAP_TILES_URL = "https://raw.githubusercontent.com/GregHib/void-map-tiles/master/"
 
-    val version = latestRelease()
+    private val releaseVersion by lazy { latestRelease() }
+    private val legacyWorlds by lazy {
+        val file = File(SiteConfiguration.DEFAULT_WORLDS)
+        if (file.isFile) SiteConfiguration.decodeWorlds(file.readText()) else emptyList()
+    }
+    private var selectedWorlds: List<WorldEntry>? = null
+
+    val version: String get() = Settings.getOrNull("web.site.version") ?: releaseVersion
+    internal val worlds: List<WorldEntry> get() = selectedWorlds ?: legacyWorlds
+    internal val selfHostedAssets: Boolean get() = Settings["web.site.assets", false]
 
     /**
      * What [WorldMap] hands `worldmap.js` to hang tile requests off. Never ends in a slash — the
@@ -47,7 +57,8 @@ object Site {
 
     @JvmStatic
     fun main(args: Array<String>) {
-        Settings.load("./game/src/main/resources/game.properties")
+        val configuration = SiteConfiguration.load()
+        configure(configuration)
         val files = configFiles()
         val cache: Cache = CacheDelegate(Settings["storage.cache.path"])
 
@@ -55,7 +66,7 @@ object Site {
         NPCDefinitions.init(npcDefinitions).load(files.getValue(Settings["definitions.npcs"]))
         Areas.load(files.list(Settings["map.areas"]))
 
-        val buildDir = File(Settings["web.server.pages"])
+        val buildDir = configuration.output
         buildDir.mkdirs()
         val gameData = GameData()
         File(buildDir, "index.html").writeText(Website.homePage())
@@ -73,11 +84,30 @@ object Site {
             File(devDir, "index.html").writeText(Dev.dashboardPage())
             File(devDir, "players.html").writeText(Dev.playersPage())
         }
-        copyStaticAssets(buildDir)
+        publish(configuration)
         if (!REMOTE_MAP_TILES) {
             copyMapTiles(buildDir)
         }
         Docs.generate(File("./docs/"), buildDir)
+    }
+
+    internal fun configure(configuration: SiteConfiguration) {
+        Settings.clear()
+        Settings.load(configuration.properties)
+        selectedWorlds = configuration.worlds
+    }
+
+    internal fun publish(configuration: SiteConfiguration) {
+        val buildDir = configuration.output
+        buildDir.mkdirs()
+        copyStaticAssets(buildDir)
+        // Publish the same input that rendered the picker, after static assets could replace it.
+        File(buildDir, "worlds.json").writeText(configuration.worldsJson)
+        if (configuration.selfHostedAssets) {
+            SiteAssets.install(buildDir, configuration.assetSource)
+            val fonts = File(buildDir, "style/tokens/fonts.css")
+            fonts.writeText("@import url(\"../../vendor/fonts.css\");\n")
+        }
     }
 
     private fun copyStaticAssets(buildDir: File) {

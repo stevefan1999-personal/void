@@ -8,9 +8,7 @@ import kotlinx.html.p
 import kotlinx.html.span
 import kotlinx.html.style
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import world.gregs.voidps.web.site.Site
-import java.io.File
 
 /** The states a world's live `status` (from `worlds.js`'s `worlds` Alpine store) can be in. */
 enum class WorldStatus(val label: String, val tone: BadgeTone, val dot: Boolean) {
@@ -59,8 +57,6 @@ private const val MAX_WORLD_LINKS = 3
 
 private const val COLUMNS = "56px 1.1fr 84px 118px 64px 132px"
 
-private val worldsJson = Json { ignoreUnknownKeys = true }
-
 /**
  * Reads the canonical world list out of the `worlds.json` data file (served as-is at the site
  * root) rather than embedding it in Kotlin, so it's the single source of truth for every surface
@@ -69,15 +65,7 @@ private val worldsJson = Json { ignoreUnknownKeys = true }
  * `worlds.js`) to fill in each world's live state from its info endpoint and ping — this
  * server-side read only has to produce the page's static structure.
  */
-private fun loadWorlds(path: String = "./web/site/src/main/resources/static/worlds.json"): List<WorldEntry> {
-    val file = File(path)
-    if (!file.exists()) {
-        return emptyList()
-    }
-    return worldsJson.decodeFromString(file.readText())
-}
-
-val defaultWorlds: List<WorldEntry> = loadWorlds()
+val defaultWorlds: List<WorldEntry> get() = Site.worlds
 
 /** The players/capacity mini progress bar shared by [worldList]'s rows. */
 private fun DIV.playersCell(world: WorldEntry) {

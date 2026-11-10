@@ -30,7 +30,13 @@ fun voidPage(
         link(rel = "stylesheet", href = cssPath)
         script(src = "${assetPrefix}js/void.js") {}
         script(src = "${assetPrefix}js/worlds.js") {}
-        script(src = "https://cdn.jsdelivr.net/npm/alpinejs@$alpineVersion/dist/cdn.min.js") {
+        val alpine = if (Site.selfHostedAssets) {
+            require(alpineVersion == SiteAssets.ALPINE_VERSION) { "Self-hosted Alpine version is ${SiteAssets.ALPINE_VERSION}." }
+            "${assetPrefix}vendor/alpine-$alpineVersion.js"
+        } else {
+            "https://cdn.jsdelivr.net/npm/alpinejs@$alpineVersion/dist/cdn.min.js"
+        }
+        script(src = alpine) {
             attributes["defer"] = ""
         }
         head()

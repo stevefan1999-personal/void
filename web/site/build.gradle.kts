@@ -9,6 +9,10 @@ application {
     tasks.run.get().workingDir = rootProject.projectDir
 }
 
+tasks.test {
+    workingDir = rootProject.projectDir
+}
+
 dependencies {
     implementation(project(":buffer"))
     implementation(project(":cache"))
@@ -17,4 +21,5 @@ dependencies {
     implementation(libs.kotlinx.html)
     implementation(libs.markdown)
     implementation(libs.kotlinx.serialization.json)
+    testImplementation(kotlin("test"))
 }
