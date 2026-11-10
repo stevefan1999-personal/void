@@ -55,6 +55,8 @@
 2. Run the server as normal [^](#quick-setup).
 3. Open `http://localhost:8080/play` in the browser and login with any username or password to create a new account.
 
+To attach a separately built TeaVM client, see [the optional browser client setup](docs/Client-Building.md#use-the-teavm-browser-client-optional).
+
 ## Website api
 
 The webserver can also expose account routes so a website's backend can create and manage accounts on the running server, without a restart or account reload.

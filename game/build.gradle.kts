@@ -147,6 +147,17 @@ distributions {
         contents {
             from(tasks["shadowJar"])
 
+            val webClient = providers.gradleProperty("webClient").map { rootProject.file(it) }.orNull
+            if (webClient != null) {
+                require(webClient.isFile && webClient.canRead() && webClient.length() > 0) {
+                    "-PwebClient must point to a readable, non-empty classic client JavaScript file."
+                }
+                from(webClient) {
+                    into("data")
+                    rename { "void-client.js" }
+                }
+            }
+
             val emptyDirs = setOf("cache", "saves")
             val data =
                 parent!!
@@ -154,6 +165,9 @@ distributions {
                     .resolve("data")
             for (config in data.list()) {
                 if (emptyDirs.contains(config) || config == ".temp") {
+                    continue
+                }
+                if (webClient != null && config in setOf("void-client.js", "void-client.js.map")) {
                     continue
                 }
                 if (config.contains(".")) {
